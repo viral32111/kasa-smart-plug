@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -431,7 +429,7 @@ func ( smartPlug *KasaSmartPlug ) GetEnergyUsage() int {
 	return smartPlug.Energy.Total
 }
 
-func main() {
+/*func main() {
 	argumentCount := len( os.Args[ 1: ] )
 
 	if ( argumentCount < 1 ) {
@@ -452,4 +450,4 @@ func main() {
 	fmt.Printf( "%.2fkWh of energy has been used, and %.2fw of energy is currently being used.\n", float64( smartPlug.GetEnergyUsage() ) / 10000.0, smartPlug.Energy.Wattage )
 
 	//smartPlug.PowerOff()
-}
+}*/
