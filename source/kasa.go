@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -121,7 +122,7 @@ type QueryResponse struct {
 
 type KasaSmartPlug struct {
 	/******************** Private *******************/
-	plugConnection net.Conn
+	connection net.Conn
 
 	/******************** Public *******************/
 	Alias string
@@ -175,20 +176,29 @@ type KasaSmartPlug struct {
 	// TO-DO: Historical energy usage structure
 }
 
-func Connect( host string, port int ) KasaSmartPlug {
-	connection, _ := net.Dial( "tcp", fmt.Sprintf( "%s:%d", host, port ) ) // TO-DO: Use DialTimeout() instead
+// Connects to a smart plug
+func KasaConnect( address net.IP, port int, timeout int ) KasaSmartPlug {
 
-	smartPlug := KasaSmartPlug {
-		plugConnection: connection,
+	// Connect to the smart plug
+	connection, connectError := net.DialTimeout( "tcp", fmt.Sprintf( "%s:%d", address.String(), port ), time.Millisecond * time.Duration( timeout ) )
+	if ( connectError != nil ) {
+		fmt.Fprintf( os.Stderr, "Error while connecting to smart plug: '%s'\n", connectError )
+		os.Exit( 1 )
 	}
 
-	smartPlug.Update()
+	// Close the connection once finished
+	//defer connection.Close()
 
-	return smartPlug
+	// Create a new structure with the connection
+	return KasaSmartPlug {
+		connection: connection,
+	}
+
 }
 
+// Disconnects from a smart plug
 func ( smartPlug KasaSmartPlug ) Disconnect() {
-	smartPlug.plugConnection.Close()
+	smartPlug.connection.Close()
 }
 
 func ( smartPlug KasaSmartPlug ) encryptQuery( data []byte ) []byte {
@@ -229,10 +239,10 @@ func ( smartPlug KasaSmartPlug ) sendQuery( target string, command string, data 
 	binary.Write( &queryBuffer, binary.BigEndian, uint32( len( jsonPayload ) ) )
 	queryBuffer.Write( smartPlug.encryptQuery( []byte( jsonPayload ) ) )
 
-	smartPlug.plugConnection.Write( queryBuffer.Bytes() )
+	smartPlug.connection.Write( queryBuffer.Bytes() )
 
 	/******************** Receive *******************/
-	connectionReader := bufio.NewReader( smartPlug.plugConnection )
+	connectionReader := bufio.NewReader( smartPlug.connection )
 	
 	responseLengthBytes := make( []byte, 4 )
 	binary.Read( connectionReader, binary.BigEndian, responseLengthBytes )

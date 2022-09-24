@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 )
 
 const (
@@ -81,7 +82,7 @@ func main() {
 
 	// Ensure an IP address is provided
 	if ( flagAddress == "" ) {
-		fmt.Fprintln( os.Stderr, "The IPv4 address of the smart plug must be set using the -address flag, see -help for more information." )
+		fmt.Fprintln( os.Stderr, "The IPv4 address of the smart plug must be set using the -address flag, use -help for more information." )
 		os.Exit( 1 )
 	}
 
@@ -120,8 +121,8 @@ func main() {
 	}
 
 	// Require a valid path for the metrics page
-	if ( flagMetricsPath == "" || flagMetricsPath[ 0 : 1 ] != "/" ) {
-		fmt.Fprintln( os.Stderr, "Invalid path for the metrics page." )
+	if ( flagMetricsPath == "" || flagMetricsPath[ 0 : 1 ] != "/" || flagMetricsPath[ 1 : ] == "/" ) {
+		fmt.Fprintln( os.Stderr, "Invalid path for the metrics page, must have a leading slash and no trailing slash." )
 		os.Exit( 1 )
 	}
 
@@ -133,5 +134,150 @@ func main() {
 
 	// Debugging
 	fmt.Println( commandName, commandArguments )
+
+	// Connect to the smart plug
+	smartPlug := KasaConnect( plugAddress, flagPort, flagInitialKey )
+	defer smartPlug.Disconnect()
+
+	// Is this execution for device information?
+	if ( commandName == "info" ) {
+
+		// Require no arguments
+		if ( len( commandArguments ) > 0 ) {
+			fmt.Fprintln( os.Stderr, "Information command does not require any arguments." )
+			os.Exit( 1 )
+		}
+
+		// TODO: Display device information
+
+	// Is this execution for energy usage?
+	} else if ( commandName == "usage" ) {
+
+		// Defaults for optional arguments
+		usageType := "now" // now, total, average
+		usagePeriod := 30 // 7 (7 days), 30 (30 days)
+
+		// Has an argument been provided?
+		if ( len( commandArguments ) > 0 ) {
+
+			// Set the energy usage type
+			usageType = commandArguments[ 0 ]
+
+			// Require a valid energy usage type
+			if ( usageType != "now" && usageType != "total" && usageType != "average" ) {
+				fmt.Fprintln( os.Stderr, "Unrecognised energy usage type, must be either 'now', 'total' or 'average'." )
+				os.Exit( 1 )
+			}
+
+		}
+
+		// Have extra arguments been provided?
+		if ( len( commandArguments ) > 1 ) {
+
+			// Fail if the energy usage type does not require a usage period
+			if ( usageType == "now" ) {
+				fmt.Fprintln( os.Stderr, "Energy usage type 'now' does not require an energy usage period." )
+				os.Exit( 1 )
+			}
+
+			// Parse the energy usage period
+			parsedPeriod, parseError := strconv.ParseInt( commandArguments[ 1 ], 10, 32 )
+			if ( parseError != nil ) {
+				fmt.Fprintf( os.Stderr, "Error while parsing energy usage period: '%s'\n", parseError )
+				os.Exit( 1 )
+			}
+
+			// Require a valid energy usage period
+			if ( parsedPeriod != 7 && parsedPeriod != 30 ) {
+				fmt.Fprintln( os.Stderr, "Invalid energy usage period, must be either 7 or 30." )
+				os.Exit( 1 )
+			}
+
+			// Set the energy usage period from a 64-bit to a regular integer
+			usagePeriod = int( parsedPeriod )
+
+		}
+
+		// Have too many arguments been provided?
+		if ( len( commandArguments ) > 2 ) {
+			fmt.Fprintln( os.Stderr, "Energy usage command does not accept more than 2 arguments." )
+			os.Exit( 1 )
+		}
+
+		// TODO: Display energy usage
+
+		// Debugging
+		fmt.Println( usageType, usagePeriod )
+
+	// Is this execution to control the power relay?
+	} else if ( commandName == "power" ) {
+
+		// Require a single argument
+		if ( len( commandArguments ) != 1 ) {
+			fmt.Fprintln( os.Stderr, "Power command requires 1 argument for power state." )
+			os.Exit( 1 )
+		}
+
+		// Parse the power state
+		var powerState bool
+		if ( commandArguments[ 0 ] == "on" ) {
+			powerState = true
+		} else if ( commandArguments[ 0 ] == "off" ) {
+			powerState = false
+
+		// Require a valid power state
+		} else {
+			fmt.Fprintln( os.Stderr, "Invalid power state, must be either 'on' or 'off'." )
+			os.Exit( 1 )
+		}
+
+		// TODO: Set relay state
+
+		// Debugging
+		fmt.Println( powerState )
+
+	// Is this execution to control the light?
+	} else if ( commandName == "light" ) {
+
+		// Require a single argument
+		if ( len( commandArguments ) != 1 ) {
+			fmt.Fprintln( os.Stderr, "Light command requires 1 argument for light state." )
+			os.Exit( 1 )
+		}
+
+		// Parse the light state
+		var lightState bool
+		if ( commandArguments[ 0 ] == "on" ) {
+			lightState = true
+		} else if ( commandArguments[ 0 ] == "off" ) {
+			lightState = false
+
+		// Require a valid light state
+		} else {
+			fmt.Fprintln( os.Stderr, "Invalid light state, must be either 'on' or 'off'." )
+			os.Exit( 1 )
+		}
+
+		// TODO: Set light state
+
+		// Debugging
+		fmt.Println( lightState )
+
+	// Is this execution to serve metrics?
+	} else if ( commandName == "metrics" ) {
+
+		// Require no arguments
+		if ( len( commandArguments ) > 0 ) {
+			fmt.Fprintln( os.Stderr, "Metrics command does not require any arguments." )
+			os.Exit( 1 )
+		}
+
+		// TODO: Start prometheus metrics server
+
+	// Give help when a command does not exist
+	} else {
+		fmt.Fprintln( os.Stderr, "Unrecognised command, use -help for a list of commands." )
+		os.Exit( 1 )
+	}
 
 }
