@@ -130,8 +130,11 @@ func main() {
 	fmt.Println( commandName, commandArguments )
 
 	// Connect to the smart plug
-	smartPlug := KasaConnect( plugAddress, flagPort, flagInitialKey )
+	smartPlug, connectError := KasaConnect( plugAddress, flagPort, 5000 )
 	defer smartPlug.Disconnect()
+	if ( connectError != nil ) {
+		exitWithErrorMessage( connectError.Error() )
+	}
 
 	// Set the initial encryption & decryption key
 	smartPlug.InitialKey = flagInitialKey
