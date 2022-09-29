@@ -5,15 +5,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net"
-	"os"
 	"strings"
 	"time"
 )
-
-const KASA_INITIAL_KEY int = 171
 
 /*
 https://www.softscheck.com/en/reverse-engineering-tp-link-hs110/
@@ -29,7 +27,8 @@ netif -> get_scaninfo -> refresh = X
 	Get a list of available wireless networks
 */
 
-type QueryResponse struct {
+// Structure for parsing the JSON query responses
+type KasaQueryResponse struct {
 	System struct {
 		Info struct {
 			SoftwareVersion string `json:"sw_ver"`
@@ -120,17 +119,23 @@ type QueryResponse struct {
 	} `json:"emeter"`
 }
 
+// Structure for holding data about & methods for a smart plug
 type KasaSmartPlug struct {
-	/******************** Private *******************/
-	connection net.Conn
 
-	/******************** Public *******************/
+	// The underlying TCP connection
+	Connection net.Conn
+
+	// The initial key for encrypting & decrypting data
+	InitialKey int
+
+	// Runtime & state
 	Alias string
 	Icon string
 	PowerState bool
 	LightState bool
 	Uptime int
 
+	// Device information
 	DeviceName string
 	DeviceModel string
 	DeviceIdentifier string
@@ -139,13 +144,16 @@ type KasaSmartPlug struct {
 	HardwareIdentifier string
 	OEMIdentifier string
 
+	// Status & firmware
 	Status string
 	FirmwareUpdating bool
 	FirmwareVersion string
 
+	// Network
 	SignalStrength int
 	MACAddress string
 
+	// Position
 	Latitude float64
 	Longitude float64
 
@@ -154,6 +162,7 @@ type KasaSmartPlug struct {
 	Type string
 	NTCState int
 
+	// Current action
 	Action struct {
 		Name string
 		Type int
@@ -162,10 +171,10 @@ type KasaSmartPlug struct {
 		Action int
 	}
 
-	ErrorCode int
-
+	// Time
 	Time time.Time
 
+	// Energy usage
 	Energy struct {
 		Amperage float64
 		Voltage float64
@@ -177,175 +186,279 @@ type KasaSmartPlug struct {
 }
 
 // Connects to a smart plug
-func KasaConnect( address net.IP, port int, timeout int ) KasaSmartPlug {
+func KasaConnect( address net.IP, port int, timeout int ) ( KasaSmartPlug, error ) {
 
-	// Connect to the smart plug
+	// Create an smart plug structure to contain the connection
+	var smartPlug KasaSmartPlug
+
+	// Open a TCP connection to the smart plug
 	connection, connectError := net.DialTimeout( "tcp", fmt.Sprintf( "%s:%d", address.String(), port ), time.Millisecond * time.Duration( timeout ) )
 	if ( connectError != nil ) {
-		fmt.Fprintf( os.Stderr, "Error while connecting to smart plug: '%s'\n", connectError )
-		os.Exit( 1 )
+		return smartPlug, connectError
 	}
 
 	// Close the connection once finished
 	//defer connection.Close()
 
-	// Create a new structure with the connection
-	return KasaSmartPlug {
-		connection: connection,
-	}
+	// Set the connection in the smart plug structure
+	smartPlug.Connection = connection
+
+	// Return the structure and no error
+	return smartPlug, nil
 
 }
 
-// Disconnects from a smart plug
+// Closes the TCP connection with the smart plug
 func ( smartPlug KasaSmartPlug ) Disconnect() {
-	smartPlug.connection.Close()
+	smartPlug.Connection.Close()
 }
 
-func ( smartPlug KasaSmartPlug ) encryptQuery( data []byte ) []byte {
-	encryptedData := make( []byte, len( data ) )
-	key := KASA_INITIAL_KEY
+// Encrypts data, usually for sending
+func ( smartPlug KasaSmartPlug ) EncryptData( originalData []byte ) []byte {
+	
+	// Create a byte array to hold the encrypted data
+	encryptedData := make( []byte, len( originalData ) )
 
-	for index := 0; index < len( data ); index++ {
-		key = key ^ int( data[ index ] )
+	// The key changes changes with each byte, but the initial key is always the same
+	key := smartPlug.InitialKey
+
+	// Update the key, XOR each byte with the current key, then add it to the byte array
+	for index := 0; index < len( originalData ); index++ {
+		key = key ^ int( originalData[ index ] )
 		encryptedData[ index ] = byte( key )
 	}
 
+	// Return the byte array containing the encrypted data
 	return encryptedData
+
 }
 
-func ( smartPlug KasaSmartPlug ) decryptQuery( data []byte ) []byte {
-	decryptedData := make( []byte, len( data ) )
-	key := KASA_INITIAL_KEY
+// Decrypts data, usually for receiving
+func ( smartPlug KasaSmartPlug ) DecryptData( encryptedData []byte ) []byte {
 
-	for index := 0; index < len( data ); index++ {
-		encryptedCharacter := int( data[ index ] )
+	// Create a byte array to hold the decrypted data
+	decryptedData := make( []byte, len( encryptedData ) )
+
+	// The key changes changes with each byte, but the initial key is always the same
+	key := smartPlug.InitialKey
+
+	// XOR each byte with the current key, add it to the byte array, then update the key
+	for index := 0; index < len( encryptedData ); index++ {
+		encryptedCharacter := int( encryptedData[ index ] )
 		decryptedData[ index ] = byte( key ^ encryptedCharacter )
 		key = encryptedCharacter
 	}
 
+	// Return the byte array containing the decrypted data
 	return decryptedData
+
 }
 
-func ( smartPlug KasaSmartPlug ) sendQuery( target string, command string, data map[string]int ) QueryResponse {
-	/******************** Construct *******************/
-	jsonPayload, _ := json.Marshal( map[string]map[string]map[string]int {
-		target: {
-			command: data,
+// Sends a query to the smart plug
+func ( smartPlug KasaSmartPlug ) SendQuery( targetName string, commandName string, extraData map[string]int ) ( KasaQueryResponse, error ) {
+
+	// Create an empty structure to hold the final response
+	var queryResponse KasaQueryResponse
+
+	// Create the JSON payload containing the query
+	jsonPayload, encodeError := json.Marshal( map[string]map[string]map[string]int {
+		targetName: {
+			commandName: extraData,
 		},
 	} )
 
-	/******************** Send *******************/
+	// Fail if there was an error encoding the JSON
+	if ( encodeError != nil ) {
+		return queryResponse, encodeError
+	}
+
+	// Create a binary buffer to hold the encrypted payload
 	var queryBuffer bytes.Buffer
-	binary.Write( &queryBuffer, binary.BigEndian, uint32( len( jsonPayload ) ) )
-	queryBuffer.Write( smartPlug.encryptQuery( []byte( jsonPayload ) ) )
 
-	smartPlug.connection.Write( queryBuffer.Bytes() )
+	// Write the length of the payload into the buffer
+	queryLengthWriteError := binary.Write( &queryBuffer, binary.BigEndian, uint32( len( jsonPayload ) ) )
+	if ( queryLengthWriteError != nil ) {
+		return queryResponse, queryLengthWriteError
+	}
 
-	/******************** Receive *******************/
-	connectionReader := bufio.NewReader( smartPlug.connection )
-	
+	// Write the encrypted payload into the buffer
+	_, queryWriteError := queryBuffer.Write( smartPlug.EncryptData( []byte( jsonPayload ) ) )
+	if ( queryWriteError != nil ) {
+		return queryResponse, queryWriteError
+	}
+
+	// Send the binary buffer to the smart plug
+	_, writeError := smartPlug.Connection.Write( queryBuffer.Bytes() )
+	if ( writeError != nil ) {
+		return queryResponse, writeError
+	}
+
+	// Create a reader for reading the response
+	connectionReader := bufio.NewReader( smartPlug.Connection )
+
+	// Read the encrypted response payload length (32-bit integer)
 	responseLengthBytes := make( []byte, 4 )
-	binary.Read( connectionReader, binary.BigEndian, responseLengthBytes )
+	responseLengthReadError := binary.Read( connectionReader, binary.BigEndian, responseLengthBytes )
+	if ( responseLengthReadError != nil ) {
+		return queryResponse, responseLengthReadError
+	}
 
-	jsonResponseBytes := make( []byte, binary.BigEndian.Uint32( responseLengthBytes ) )
-	binary.Read( connectionReader, binary.BigEndian, jsonResponseBytes )
+	// Read the encrypted response payload
+	responseBytes := make( []byte, binary.BigEndian.Uint32( responseLengthBytes ) )
+	responseReadError := binary.Read( connectionReader, binary.BigEndian, responseBytes )
+	if ( responseReadError != nil ) {
+		return queryResponse, responseReadError
+	}
 
-	// This is for debugging responses
-	//fmt.Println( string( smartPlug.decryptQuery( jsonResponseBytes ) ) )
+	// Decrypt the response payload and parse it as JSON into the response structure
+	decodeError := json.Unmarshal( smartPlug.DecryptData( responseBytes ), &queryResponse )
+	if ( decodeError != nil ) {
+		return queryResponse, decodeError
+	}
 
-	/******************** Parse *******************/
-	var queryResponse QueryResponse
-	json.Unmarshal( smartPlug.decryptQuery( jsonResponseBytes ), &queryResponse )
+	// Return the response
+	return queryResponse, nil
 
-	return queryResponse
 }
 
-func ( smartPlug *KasaSmartPlug ) Update() bool {
-	response := smartPlug.sendQuery( "system", "get_sysinfo", map[string]int{} )
+// Updates all the properties with the latest data
+func ( smartPlug *KasaSmartPlug ) UpdateProperties() error {
 
-	smartPlug.Alias = response.System.Info.Alias
-	smartPlug.Icon = response.System.Info.IconHash
-	smartPlug.PowerState = ( response.System.Info.RelayState != 0 )
-	smartPlug.LightState = ( response.System.Info.LEDOff == 0 )
-	smartPlug.Uptime = response.System.Info.UptimeSeconds
+	// Fetch the system information
+	queryResponse, sendError := smartPlug.SendQuery( "system", "get_sysinfo", map[string]int{} )
+	if ( sendError != nil ) {
+		return sendError
+	}
 
-	smartPlug.DeviceName = response.System.Info.DeviceName
-	smartPlug.DeviceModel = response.System.Info.Model
-	smartPlug.DeviceIdentifier = response.System.Info.DeviceIdentifier
-	smartPlug.DeviceFeatures = strings.Split( response.System.Info.Features, ":" )
-	smartPlug.HardwareVersion = response.System.Info.HardwareVersion
-	smartPlug.HardwareIdentifier = response.System.Info.HardwareIdentifier
-	smartPlug.OEMIdentifier = response.System.Info.OEMIdentifier
+	// Update runtime & state properties
+	smartPlug.Alias = queryResponse.System.Info.Alias
+	smartPlug.Icon = queryResponse.System.Info.IconHash
+	smartPlug.PowerState = ( queryResponse.System.Info.RelayState != 0 )
+	smartPlug.LightState = ( queryResponse.System.Info.LEDOff == 0 )
+	smartPlug.Uptime = queryResponse.System.Info.UptimeSeconds
 
-	smartPlug.Status = response.System.Info.Status
-	smartPlug.FirmwareUpdating = ( response.System.Info.Updating != 0 )
-	smartPlug.FirmwareVersion = response.System.Info.SoftwareVersion
+	// Update device information properties
+	smartPlug.DeviceName = queryResponse.System.Info.DeviceName
+	smartPlug.DeviceModel = queryResponse.System.Info.Model
+	smartPlug.DeviceIdentifier = queryResponse.System.Info.DeviceIdentifier
+	smartPlug.DeviceFeatures = strings.Split( queryResponse.System.Info.Features, ":" )
+	smartPlug.HardwareVersion = queryResponse.System.Info.HardwareVersion
+	smartPlug.HardwareIdentifier = queryResponse.System.Info.HardwareIdentifier
+	smartPlug.OEMIdentifier = queryResponse.System.Info.OEMIdentifier
 
-	smartPlug.SignalStrength = response.System.Info.SignalStrength
-	smartPlug.MACAddress = response.System.Info.MACAddress
+	// Update status & firmware properties
+	smartPlug.Status = queryResponse.System.Info.Status
+	smartPlug.FirmwareUpdating = ( queryResponse.System.Info.Updating != 0 )
+	smartPlug.FirmwareVersion = queryResponse.System.Info.SoftwareVersion
 
-	smartPlug.Latitude = float64( response.System.Info.Latitude ) / 10000.0
-	smartPlug.Longitude = float64( response.System.Info.Longitude ) / 10000.0
+	// Update network properties
+	smartPlug.SignalStrength = queryResponse.System.Info.SignalStrength
+	smartPlug.MACAddress = queryResponse.System.Info.MACAddress
 
-	smartPlug.Source = response.System.Info.Source
-	smartPlug.Type = response.System.Info.Type
-	smartPlug.NTCState = response.System.Info.NTCState
+	// Update position properties
+	smartPlug.Latitude = float64( queryResponse.System.Info.Latitude ) / 10000.0
+	smartPlug.Longitude = float64( queryResponse.System.Info.Longitude ) / 10000.0
 
-	smartPlug.Action.Name = response.System.Info.ActiveMode
-	smartPlug.Action.Type = response.System.Info.NextAction.Type
-	smartPlug.Action.Identifier = response.System.Info.NextAction.Identifier
-	smartPlug.Action.ScheduledSeconds = response.System.Info.NextAction.ScheduledSeconds
-	smartPlug.Action.Action = response.System.Info.NextAction.Action
+	// Update ???? properties
+	smartPlug.Source = queryResponse.System.Info.Source
+	smartPlug.Type = queryResponse.System.Info.Type
+	smartPlug.NTCState = queryResponse.System.Info.NTCState
 
-	smartPlug.ErrorCode = response.System.Info.ErrorCode
+	// Update current action properties
+	smartPlug.Action.Name = queryResponse.System.Info.ActiveMode
+	smartPlug.Action.Type = queryResponse.System.Info.NextAction.Type
+	smartPlug.Action.Identifier = queryResponse.System.Info.NextAction.Identifier
+	smartPlug.Action.ScheduledSeconds = queryResponse.System.Info.NextAction.ScheduledSeconds
+	smartPlug.Action.Action = queryResponse.System.Info.NextAction.Action
 
-	smartPlug.updateTime()
+	// Update the time-related properties
+	updateTimeError := smartPlug.UpdateTimeProperties()
+	if ( updateTimeError != nil ) {
+		return updateTimeError
+	}
 
-	return ( smartPlug.ErrorCode == 0 )
+	// Fail if there is an error set
+	if ( queryResponse.System.Info.ErrorCode != 0 ) {
+		return errors.New( string( queryResponse.System.Info.ErrorCode ) )
+	}
+
+	// Return no error if we got this far
+	return nil
+
 }
 
-func ( smartPlug *KasaSmartPlug ) updateTime() bool {
-	timeResponse := smartPlug.sendQuery( "time", "get_time", map[string]int {} )
-	smartPlug.ErrorCode = timeResponse.Time.Now.ErrorCode
+// Updates the time-related properties
+func ( smartPlug *KasaSmartPlug ) UpdateTimeProperties() error {
 
-	zoneResponse := smartPlug.sendQuery( "time", "get_timezone", map[string]int {} )
-	smartPlug.ErrorCode = zoneResponse.Time.Zone.ErrorCode
+	// Fetch the current time
+	timeResponse, timeQueryError := smartPlug.SendQuery( "time", "get_time", map[string]int {} )
+	if ( timeQueryError != nil ) {
+		return timeQueryError
+	}
+	if ( timeResponse.Time.Zone.ErrorCode != 0 ) {
+		return errors.New( string( timeResponse.Time.Zone.ErrorCode ) )
+	}
 
+	// Fetch the timezone
+	zoneResponse, zoneQueryError := smartPlug.SendQuery( "time", "get_timezone", map[string]int {} )
+	if ( zoneQueryError != nil ) {
+		return zoneQueryError
+	}
+	if ( zoneResponse.Time.Zone.ErrorCode != 0 ) {
+		return errors.New( string( zoneResponse.Time.Zone.ErrorCode ) )
+	}
+
+	// TODO: Get the timezone offset from the timezone response
 	zoneOffset := 0 // 39 is Europe/London?
 
-	smartPlug.Time, _ = time.Parse( "2006-01-02 15:04:05 -0700", fmt.Sprintf( "%04d-%02d-%02d %02d:%02d:%02d -%06d", timeResponse.Time.Now.Year, timeResponse.Time.Now.Month, timeResponse.Time.Now.Day, timeResponse.Time.Now.Hour, timeResponse.Time.Now.Minute, timeResponse.Time.Now.Second, zoneOffset ) )
+	// Parse the date & time from the response
+	parsedTime, parseError := time.Parse( "2006-01-02 15:04:05 -0700", fmt.Sprintf( "%04d-%02d-%02d %02d:%02d:%02d -%06d", timeResponse.Time.Now.Year, timeResponse.Time.Now.Month, timeResponse.Time.Now.Day, timeResponse.Time.Now.Hour, timeResponse.Time.Now.Minute, timeResponse.Time.Now.Second, zoneOffset ) )
+	if ( parseError != nil ) {
+		return parseError
+	}
 
-	return ( smartPlug.ErrorCode == 0 )
+	// Update the properties
+	smartPlug.Time = parsedTime
+
+	// Return no error if we got this far
+	return nil
+
 }
 
+
+
+
+
+
+
 func ( smartPlug *KasaSmartPlug ) PowerOn() bool {
-	smartPlug.Update()
+	smartPlug.UpdateProperties()
 
 	if smartPlug.PowerState {
 		return false
 	}
 
-	response := smartPlug.sendQuery( "system", "set_relay_state", map[string]int { "state": 1 } )
+	response := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": 1 } )
 	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
 
 	return ( smartPlug.ErrorCode == 0 )
 }
 
 func ( smartPlug KasaSmartPlug ) PowerOff() bool {
-	smartPlug.Update()
+	smartPlug.UpdateProperties()
 
 	if !smartPlug.PowerState {
 		return false
 	}
 
-	response := smartPlug.sendQuery( "system", "set_relay_state", map[string]int { "state": 0 } )
+	response := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": 0 } )
 	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
 
 	return ( smartPlug.ErrorCode == 0 )
 }
 
 func ( smartPlug KasaSmartPlug ) PowerToggle() bool {
-	smartPlug.Update()
+	smartPlug.UpdateProperties()
 
 	powerState := 0
 
@@ -355,40 +468,40 @@ func ( smartPlug KasaSmartPlug ) PowerToggle() bool {
 		powerState = 1
 	}
 
-	response := smartPlug.sendQuery( "system", "set_relay_state", map[string]int { "state": powerState } )
+	response := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": powerState } )
 	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
 
 	return ( smartPlug.ErrorCode == 0 )
 }
 
 func ( smartPlug *KasaSmartPlug ) LightOn() bool {
-	smartPlug.Update()
+	smartPlug.UpdateProperties()
 
 	if smartPlug.LightState {
 		return false
 	}
 
-	response := smartPlug.sendQuery( "system", "set_led_off", map[string]int { "off": 0 } )
+	response := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": 0 } )
 	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
 
 	return ( smartPlug.ErrorCode == 0 )
 }
 
 func ( smartPlug *KasaSmartPlug ) LightOff() bool {
-	smartPlug.Update()
+	smartPlug.UpdateProperties()
 
 	if !smartPlug.LightState {
 		return false
 	}
 
-	response := smartPlug.sendQuery( "system", "set_led_off", map[string]int { "off": 1 } )
+	response := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": 1 } )
 	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
 
 	return ( smartPlug.ErrorCode == 0 )
 }
 
 func ( smartPlug KasaSmartPlug ) LightToggle() bool {
-	smartPlug.Update()
+	smartPlug.UpdateProperties()
 
 	lightState := 0
 
@@ -398,7 +511,7 @@ func ( smartPlug KasaSmartPlug ) LightToggle() bool {
 		lightState = 0
 	}
 
-	response := smartPlug.sendQuery( "system", "set_led_off", map[string]int { "off": lightState } )
+	response := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": lightState } )
 	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
 
 	return ( smartPlug.ErrorCode == 0 )
@@ -411,7 +524,7 @@ func ( smartPlug KasaSmartPlug ) GetTime() time.Time {
 }
 
 func ( smartPlug KasaSmartPlug ) GetPowerTime() time.Time {
-	smartPlug.Update()
+	smartPlug.UpdateProperties()
 
 	if !smartPlug.PowerState {
 		return time.Unix( 0, 0 )
@@ -421,14 +534,14 @@ func ( smartPlug KasaSmartPlug ) GetPowerTime() time.Time {
 }
 
 func ( smartPlug KasaSmartPlug ) Reboot( delay int ) bool {
-	response := smartPlug.sendQuery( "system", "reboot", map[string]int { "delay": int( math.Max( 1.0, float64( delay ) ) ) } )
+	response := smartPlug.SendQuery( "system", "reboot", map[string]int { "delay": int( math.Max( 1.0, float64( delay ) ) ) } )
 	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
 
 	return ( smartPlug.ErrorCode == 0 )
 }
 
 func ( smartPlug *KasaSmartPlug ) GetEnergyUsage() int {
-	response := smartPlug.sendQuery( "emeter", "get_realtime", map[string]int {} )
+	response := smartPlug.SendQuery( "emeter", "get_realtime", map[string]int {} )
 	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
 
 	smartPlug.Energy.Amperage = float64( response.EnergyMeter.Now.Amperage ) / 1000.0

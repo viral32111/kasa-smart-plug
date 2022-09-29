@@ -8,6 +8,7 @@ import (
 	"strconv"
 )
 
+// Metadata
 const (
 	PROJECT_NAME = "Kasa Smart Plug"
 	PROJECT_VERSION = "2.0.0"
@@ -30,6 +31,7 @@ kasa -a 192.168.0.5 power off
 kasa --address 192.168.0.5 metrics
 */
 
+// Entry-point
 func main() {
 
 	// Values of the command-line flags, and the defaults
@@ -82,54 +84,46 @@ func main() {
 
 	// Ensure an IP address is provided
 	if ( flagAddress == "" ) {
-		fmt.Fprintln( os.Stderr, "The IPv4 address of the smart plug must be set using the -address flag, use -help for more information." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "The IPv4 address of the smart plug must be set using the -address flag, use -help for more information." )
 	}
 
 	// Require a valid IP address for the smart plug
 	plugAddress := net.ParseIP( flagAddress )
 	if ( plugAddress == nil || plugAddress.To4() == nil ) {
-		fmt.Fprintln( os.Stderr, "Invalid IPv4 address for smart plug." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Invalid IPv4 address for smart plug." )
 	}
 
 	// Require a valid IP address for the smart plug API
 	if ( flagPort <= 0 || flagPort >= 65536 ) {
-		fmt.Fprintln( os.Stderr, "Invalid port number for smart plug API, must be between 1 and 65535." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Invalid port number for smart plug API, must be between 1 and 65535." )
 	}
 
 	// No need to check initial key as it can be any positive or negative integer
 
 	// Require a valid output format
 	if ( flagFormat != "human" && flagFormat != "json" ) {
-		fmt.Fprintln( os.Stderr, "Invalid output format, must be either 'human' or 'json'." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Invalid output format, must be either 'human' or 'json'." )
 	}
 
 	// Require a valid IP address for the metrics server
 	metricsAddress := net.ParseIP( flagMetricsAddress )
 	if ( flagMetricsAddress == "" || metricsAddress == nil || metricsAddress.To4() == nil ) {
-		fmt.Fprintln( os.Stderr, "Invalid listening IPv4 address for HTTP metrics server." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Invalid listening IPv4 address for HTTP metrics server." )
 	}
 
 	// Require a valid IP address for the metrics server
 	if ( flagMetricsPort <= 0 || flagMetricsPort >= 65536 ) {
-		fmt.Fprintln( os.Stderr, "Invalid listening port number for HTTP metrics server, must be between 1 and 65535." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Invalid listening port number for HTTP metrics server, must be between 1 and 65535." )
 	}
 
 	// Require a valid path for the metrics page
 	if ( flagMetricsPath == "" || flagMetricsPath[ 0 : 1 ] != "/" || flagMetricsPath[ 1 : ] == "/" ) {
-		fmt.Fprintln( os.Stderr, "Invalid path for the metrics page, must have a leading slash and no trailing slash." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Invalid path for the metrics page, must have a leading slash and no trailing slash." )
 	}
 
 	// Require a valid interval for collecting metrics
 	if ( flagMetricsInterval <= 0 ) {
-		fmt.Fprintln( os.Stderr, "Invalid interval to wait between collecting metrics, must be greater than 0." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Invalid interval to wait between collecting metrics, must be greater than 0." )
 	}
 
 	// Debugging
@@ -139,13 +133,21 @@ func main() {
 	smartPlug := KasaConnect( plugAddress, flagPort, flagInitialKey )
 	defer smartPlug.Disconnect()
 
+	// Set the initial encryption & decryption key
+	smartPlug.InitialKey = flagInitialKey
+
+	// Update all properties with latest data
+	updatePropertiesError := smartPlug.UpdateProperties()
+	if ( updatePropertiesError != nil ) {
+		exitWithErrorMessage( updatePropertiesError.Error() )
+	}
+
 	// Is this execution for device information?
 	if ( commandName == "info" ) {
 
 		// Require no arguments
 		if ( len( commandArguments ) > 0 ) {
-			fmt.Fprintln( os.Stderr, "Information command does not require any arguments." )
-			os.Exit( 1 )
+			exitWithErrorMessage( "Information command does not require any arguments." )
 		}
 
 		// TODO: Display device information
@@ -165,8 +167,7 @@ func main() {
 
 			// Require a valid energy usage type
 			if ( usageType != "now" && usageType != "total" && usageType != "average" ) {
-				fmt.Fprintln( os.Stderr, "Unrecognised energy usage type, must be either 'now', 'total' or 'average'." )
-				os.Exit( 1 )
+				exitWithErrorMessage( "Unrecognised energy usage type, must be either 'now', 'total' or 'average'." )
 			}
 
 		}
@@ -176,8 +177,7 @@ func main() {
 
 			// Fail if the energy usage type does not require a usage period
 			if ( usageType == "now" ) {
-				fmt.Fprintln( os.Stderr, "Energy usage type 'now' does not require an energy usage period." )
-				os.Exit( 1 )
+				exitWithErrorMessage( "Energy usage type 'now' does not require an energy usage period." )
 			}
 
 			// Parse the energy usage period
@@ -189,8 +189,7 @@ func main() {
 
 			// Require a valid energy usage period
 			if ( parsedPeriod != 7 && parsedPeriod != 30 ) {
-				fmt.Fprintln( os.Stderr, "Invalid energy usage period, must be either 7 or 30." )
-				os.Exit( 1 )
+				exitWithErrorMessage( "Invalid energy usage period, must be either 7 or 30." )
 			}
 
 			// Set the energy usage period from a 64-bit to a regular integer
@@ -200,8 +199,7 @@ func main() {
 
 		// Have too many arguments been provided?
 		if ( len( commandArguments ) > 2 ) {
-			fmt.Fprintln( os.Stderr, "Energy usage command does not accept more than 2 arguments." )
-			os.Exit( 1 )
+			exitWithErrorMessage( "Energy usage command does not accept more than 2 arguments." )
 		}
 
 		// TODO: Display energy usage
@@ -214,8 +212,7 @@ func main() {
 
 		// Require a single argument
 		if ( len( commandArguments ) != 1 ) {
-			fmt.Fprintln( os.Stderr, "Power command requires 1 argument for power state." )
-			os.Exit( 1 )
+			exitWithErrorMessage( "Power command requires 1 argument for power state." )
 		}
 
 		// Parse the power state
@@ -227,8 +224,7 @@ func main() {
 
 		// Require a valid power state
 		} else {
-			fmt.Fprintln( os.Stderr, "Invalid power state, must be either 'on' or 'off'." )
-			os.Exit( 1 )
+			exitWithErrorMessage( "Invalid power state, must be either 'on' or 'off'." )
 		}
 
 		// TODO: Set relay state
@@ -241,8 +237,7 @@ func main() {
 
 		// Require a single argument
 		if ( len( commandArguments ) != 1 ) {
-			fmt.Fprintln( os.Stderr, "Light command requires 1 argument for light state." )
-			os.Exit( 1 )
+			exitWithErrorMessage( "Light command requires 1 argument for light state." )
 		}
 
 		// Parse the light state
@@ -254,8 +249,7 @@ func main() {
 
 		// Require a valid light state
 		} else {
-			fmt.Fprintln( os.Stderr, "Invalid light state, must be either 'on' or 'off'." )
-			os.Exit( 1 )
+			exitWithErrorMessage( "Invalid light state, must be either 'on' or 'off'." )
 		}
 
 		// TODO: Set light state
@@ -268,16 +262,20 @@ func main() {
 
 		// Require no arguments
 		if ( len( commandArguments ) > 0 ) {
-			fmt.Fprintln( os.Stderr, "Metrics command does not require any arguments." )
-			os.Exit( 1 )
+			exitWithErrorMessage( "Metrics command does not require any arguments." )
 		}
 
 		// TODO: Start prometheus metrics server
 
 	// Give help when a command does not exist
 	} else {
-		fmt.Fprintln( os.Stderr, "Unrecognised command, use -help for a list of commands." )
-		os.Exit( 1 )
+		exitWithErrorMessage( "Unrecognised command, use -help for a list of commands." )
 	}
 
+}
+
+// Displays a message on the standard error stream & exits with an failure status code
+func exitWithErrorMessage( message string ) {
+	fmt.Fprintln( os.Stderr, message )
+	os.Exit( 1 )
 }
