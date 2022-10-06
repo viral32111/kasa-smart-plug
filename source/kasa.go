@@ -185,36 +185,38 @@ type KasaSmartPlug struct {
 	// TO-DO: Historical energy usage structure
 }
 
-// Connects to a smart plug
-func KasaConnect( address net.IP, port int, timeout int ) ( KasaSmartPlug, error ) {
+// Opens a connection to a smart plug
+func ( smartPlug *KasaSmartPlug ) Connect( address net.IP, port int, timeout int ) ( error ) {
 
-	// Create an smart plug structure to contain the connection
-	var smartPlug KasaSmartPlug
-
-	// Open a TCP connection to the smart plug
-	connection, connectError := net.DialTimeout( "tcp", fmt.Sprintf( "%s:%d", address.String(), port ), time.Millisecond * time.Duration( timeout ) )
+	// Try to open a TCP connection to the smart plug
+	connection, connectError := net.DialTimeout( "tcp4", fmt.Sprintf( "%s:%d", address.String(), port ), time.Millisecond * time.Duration( timeout ) )
 	if ( connectError != nil ) {
-		return smartPlug, connectError
+		return connectError
 	}
-
-	// Close the connection once finished
-	//defer connection.Close()
 
 	// Set the connection in the smart plug structure
 	smartPlug.Connection = connection
 
-	// Return the structure and no error
-	return smartPlug, nil
+	// Return no error
+	return nil
 
 }
 
-// Closes the TCP connection with the smart plug
-func ( smartPlug KasaSmartPlug ) Disconnect() {
-	smartPlug.Connection.Close()
+// Closes the connection with the smart plug
+func ( smartPlug *KasaSmartPlug ) Disconnect() ( error ) {
+
+	// Try to close the connecntion
+	closeError := smartPlug.Connection.Close()
+	if ( closeError != nil ) {
+		return closeError
+	}
+
+	// Return no error
+	return nil
 }
 
 // Encrypts data, usually for sending
-func ( smartPlug KasaSmartPlug ) EncryptData( originalData []byte ) []byte {
+func ( smartPlug *KasaSmartPlug ) EncryptData( originalData []byte ) ( []byte ) {
 	
 	// Create a byte array to hold the encrypted data
 	encryptedData := make( []byte, len( originalData ) )
@@ -234,7 +236,7 @@ func ( smartPlug KasaSmartPlug ) EncryptData( originalData []byte ) []byte {
 }
 
 // Decrypts data, usually for receiving
-func ( smartPlug KasaSmartPlug ) DecryptData( encryptedData []byte ) []byte {
+func ( smartPlug *KasaSmartPlug ) DecryptData( encryptedData []byte ) ( []byte ) {
 
 	// Create a byte array to hold the decrypted data
 	decryptedData := make( []byte, len( encryptedData ) )
@@ -255,10 +257,7 @@ func ( smartPlug KasaSmartPlug ) DecryptData( encryptedData []byte ) []byte {
 }
 
 // Sends a query to the smart plug
-func ( smartPlug KasaSmartPlug ) SendQuery( targetName string, commandName string, extraData map[string]int ) ( KasaQueryResponse, error ) {
-
-	// Create an empty structure to hold the final response
-	var queryResponse KasaQueryResponse
+func ( smartPlug *KasaSmartPlug ) SendQuery( targetName string, commandName string, extraData map[string]int ) ( KasaQueryResponse, error ) {
 
 	// Create the JSON payload containing the query
 	jsonPayload, encodeError := json.Marshal( map[string]map[string]map[string]int {
@@ -269,7 +268,7 @@ func ( smartPlug KasaSmartPlug ) SendQuery( targetName string, commandName strin
 
 	// Fail if there was an error encoding the JSON
 	if ( encodeError != nil ) {
-		return queryResponse, encodeError
+		return KasaQueryResponse{}, encodeError
 	}
 
 	// Create a binary buffer to hold the encrypted payload
@@ -278,19 +277,19 @@ func ( smartPlug KasaSmartPlug ) SendQuery( targetName string, commandName strin
 	// Write the length of the payload into the buffer
 	queryLengthWriteError := binary.Write( &queryBuffer, binary.BigEndian, uint32( len( jsonPayload ) ) )
 	if ( queryLengthWriteError != nil ) {
-		return queryResponse, queryLengthWriteError
+		return KasaQueryResponse{}, queryLengthWriteError
 	}
 
 	// Write the encrypted payload into the buffer
 	_, queryWriteError := queryBuffer.Write( smartPlug.EncryptData( []byte( jsonPayload ) ) )
 	if ( queryWriteError != nil ) {
-		return queryResponse, queryWriteError
+		return KasaQueryResponse{}, queryWriteError
 	}
 
 	// Send the binary buffer to the smart plug
 	_, writeError := smartPlug.Connection.Write( queryBuffer.Bytes() )
 	if ( writeError != nil ) {
-		return queryResponse, writeError
+		return KasaQueryResponse{}, writeError
 	}
 
 	// Create a reader for reading the response
@@ -300,20 +299,21 @@ func ( smartPlug KasaSmartPlug ) SendQuery( targetName string, commandName strin
 	responseLengthBytes := make( []byte, 4 )
 	responseLengthReadError := binary.Read( connectionReader, binary.BigEndian, responseLengthBytes )
 	if ( responseLengthReadError != nil ) {
-		return queryResponse, responseLengthReadError
+		return KasaQueryResponse{}, responseLengthReadError
 	}
 
 	// Read the encrypted response payload
 	responseBytes := make( []byte, binary.BigEndian.Uint32( responseLengthBytes ) )
 	responseReadError := binary.Read( connectionReader, binary.BigEndian, responseBytes )
 	if ( responseReadError != nil ) {
-		return queryResponse, responseReadError
+		return KasaQueryResponse{}, responseReadError
 	}
 
 	// Decrypt the response payload and parse it as JSON into the response structure
+	var queryResponse KasaQueryResponse
 	decodeError := json.Unmarshal( smartPlug.DecryptData( responseBytes ), &queryResponse )
 	if ( decodeError != nil ) {
-		return queryResponse, decodeError
+		return KasaQueryResponse{}, decodeError
 	}
 
 	// Return the response
@@ -322,7 +322,7 @@ func ( smartPlug KasaSmartPlug ) SendQuery( targetName string, commandName strin
 }
 
 // Updates all the properties with the latest data
-func ( smartPlug *KasaSmartPlug ) UpdateProperties() error {
+func ( smartPlug *KasaSmartPlug ) UpdateProperties() ( error ) {
 
 	// Fetch the system information
 	queryResponse, sendError := smartPlug.SendQuery( "system", "get_sysinfo", map[string]int{} )
@@ -379,7 +379,13 @@ func ( smartPlug *KasaSmartPlug ) UpdateProperties() error {
 
 	// Fail if there is an error set
 	if ( queryResponse.System.Info.ErrorCode != 0 ) {
-		return errors.New( string( queryResponse.System.Info.ErrorCode ) )
+		return fmt.Errorf( "%d", queryResponse.System.Info.ErrorCode )
+	}
+
+	// Update the energy usage properties
+	updateEnergyUsageError := smartPlug.UpdateEnergyUsageProperties()
+	if ( updateEnergyUsageError != nil ) {
+		return updateEnergyUsageError
 	}
 
 	// Return no error if we got this far
@@ -388,15 +394,17 @@ func ( smartPlug *KasaSmartPlug ) UpdateProperties() error {
 }
 
 // Updates the time-related properties
-func ( smartPlug *KasaSmartPlug ) UpdateTimeProperties() error {
+func ( smartPlug *KasaSmartPlug ) UpdateTimeProperties() ( error ) {
 
 	// Fetch the current time
 	timeResponse, timeQueryError := smartPlug.SendQuery( "time", "get_time", map[string]int {} )
 	if ( timeQueryError != nil ) {
 		return timeQueryError
 	}
-	if ( timeResponse.Time.Zone.ErrorCode != 0 ) {
-		return errors.New( string( timeResponse.Time.Zone.ErrorCode ) )
+
+	// Fail if there is an error set
+	if ( timeResponse.Time.Now.ErrorCode != 0 ) {
+		return fmt.Errorf( "%d", timeResponse.Time.Now.ErrorCode )
 	}
 
 	// Fetch the timezone
@@ -404,15 +412,17 @@ func ( smartPlug *KasaSmartPlug ) UpdateTimeProperties() error {
 	if ( zoneQueryError != nil ) {
 		return zoneQueryError
 	}
+
+	// Fail if there is an error set
 	if ( zoneResponse.Time.Zone.ErrorCode != 0 ) {
-		return errors.New( string( zoneResponse.Time.Zone.ErrorCode ) )
+		return fmt.Errorf( "%d", timeResponse.Time.Zone.ErrorCode )
 	}
 
 	// TODO: Get the timezone offset from the timezone response
 	zoneOffset := 0 // 39 is Europe/London?
 
 	// Parse the date & time from the response
-	parsedTime, parseError := time.Parse( "2006-01-02 15:04:05 -0700", fmt.Sprintf( "%04d-%02d-%02d %02d:%02d:%02d -%06d", timeResponse.Time.Now.Year, timeResponse.Time.Now.Month, timeResponse.Time.Now.Day, timeResponse.Time.Now.Hour, timeResponse.Time.Now.Minute, timeResponse.Time.Now.Second, zoneOffset ) )
+	parsedTime, parseError := time.Parse( "2006-01-02 15:04:05 -070000", fmt.Sprintf( "%04d-%02d-%02d %02d:%02d:%02d -%06d", timeResponse.Time.Now.Year, timeResponse.Time.Now.Month, timeResponse.Time.Now.Day, timeResponse.Time.Now.Hour, timeResponse.Time.Now.Minute, timeResponse.Time.Now.Second, zoneOffset ) )
 	if ( parseError != nil ) {
 		return parseError
 	}
@@ -425,152 +435,255 @@ func ( smartPlug *KasaSmartPlug ) UpdateTimeProperties() error {
 
 }
 
+// Updates the energy usage properties
+func ( smartPlug *KasaSmartPlug ) UpdateEnergyUsageProperties() ( error ) {
 
-
-
-
-
-
-func ( smartPlug *KasaSmartPlug ) PowerOn() bool {
-	smartPlug.UpdateProperties()
-
-	if smartPlug.PowerState {
-		return false
+	// Send the energy usage command
+	queryResponse, queryError := smartPlug.SendQuery( "emeter", "get_realtime", map[string]int {} )
+	if ( queryError != nil ) {
+		return queryError
 	}
 
-	response := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": 1 } )
-	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
+	// Update the properties on the structure
+	smartPlug.Energy.Amperage = float64( queryResponse.EnergyMeter.Now.Amperage ) / 1000.0
+	smartPlug.Energy.Voltage = float64( queryResponse.EnergyMeter.Now.Voltage ) / 1000.0
+	smartPlug.Energy.Wattage = float64( queryResponse.EnergyMeter.Now.Wattage ) / 1000.0
+	smartPlug.Energy.Total = queryResponse.EnergyMeter.Now.Total
 
-	return ( smartPlug.ErrorCode == 0 )
+	// Return no error
+	return nil
+
 }
 
-func ( smartPlug KasaSmartPlug ) PowerOff() bool {
-	smartPlug.UpdateProperties()
+// Switches on power
+func ( smartPlug *KasaSmartPlug ) PowerOn() ( error ) {
 
-	if !smartPlug.PowerState {
-		return false
+	// Update data
+	updateError := smartPlug.UpdateProperties()
+	if ( updateError != nil ) {
+		return updateError
 	}
 
-	response := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": 0 } )
-	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
+	// Fail if the plug is already switched on
+	if ( smartPlug.PowerState ) {
+		return errors.New( "smart plug is already powered on" )
+	}
 
-	return ( smartPlug.ErrorCode == 0 )
+	// Send the power on command
+	queryResponse, queryError := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": 1 } )
+	if ( queryError != nil ) {
+		return queryError
+	}
+
+	// Fail if there is an error set
+	if ( queryResponse.System.RelayState.ErrorCode != 0 ) {
+		return fmt.Errorf( "%d", queryResponse.System.RelayState.ErrorCode )
+	}
+
+	// Return no error
+	return nil
+
 }
 
-func ( smartPlug KasaSmartPlug ) PowerToggle() bool {
-	smartPlug.UpdateProperties()
+// Switches off power
+func ( smartPlug *KasaSmartPlug ) PowerOff() ( error ) {
+	
+	// Update data
+	updateError := smartPlug.UpdateProperties()
+	if ( updateError != nil ) {
+		return updateError
+	}
 
+	// Fail if the plug is already switched off
+	if ( !smartPlug.PowerState ) {
+		return errors.New( "smart plug is already powered off" )
+	}
+
+	// Send the power off command
+	queryResponse, queryError := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": 0 } )
+	if ( queryError != nil ) {
+		return queryError
+	}
+
+	// Fail if there is an error set
+	if ( queryResponse.System.RelayState.ErrorCode != 0 ) {
+		return fmt.Errorf( "%d", queryResponse.System.RelayState.ErrorCode )
+	}
+
+	// Return no error
+	return nil
+
+}
+
+// Toggle power
+func ( smartPlug KasaSmartPlug ) PowerToggle() ( error ) {
+
+	// Update data
+	updateError := smartPlug.UpdateProperties()
+	if ( updateError != nil ) {
+		return updateError
+	}
+
+	// Get the current power state
 	powerState := 0
-
-	if smartPlug.PowerState {
+	if ( smartPlug.PowerState ) {
 		powerState = 0
-	} else if !smartPlug.PowerState {
+	} else if ( !smartPlug.PowerState ) {
 		powerState = 1
 	}
 
-	response := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": powerState } )
-	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
-
-	return ( smartPlug.ErrorCode == 0 )
-}
-
-func ( smartPlug *KasaSmartPlug ) LightOn() bool {
-	smartPlug.UpdateProperties()
-
-	if smartPlug.LightState {
-		return false
+	// Send the power command
+	queryResponse, queryError := smartPlug.SendQuery( "system", "set_relay_state", map[string]int { "state": powerState } )
+	if ( queryError != nil ) {
+		return queryError
 	}
 
-	response := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": 0 } )
-	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
-
-	return ( smartPlug.ErrorCode == 0 )
-}
-
-func ( smartPlug *KasaSmartPlug ) LightOff() bool {
-	smartPlug.UpdateProperties()
-
-	if !smartPlug.LightState {
-		return false
+	// Fail if there is an error set
+	if ( queryResponse.System.RelayState.ErrorCode != 0 ) {
+		return fmt.Errorf( "%d", queryResponse.System.RelayState.ErrorCode )
 	}
 
-	response := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": 1 } )
-	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
+	// Return no error
+	return nil
 
-	return ( smartPlug.ErrorCode == 0 )
 }
 
-func ( smartPlug KasaSmartPlug ) LightToggle() bool {
-	smartPlug.UpdateProperties()
+// Switch on the power indicator light
+func ( smartPlug *KasaSmartPlug ) LightOn() ( error ) {
+	
+	// Update data
+	updateError := smartPlug.UpdateProperties()
+	if ( updateError != nil ) {
+		return updateError
+	}
 
+	// Fail if the light is already on
+	if ( smartPlug.LightState ) {
+		return errors.New( "smart plug light is already on" )
+	}
+
+	// Send the light on command
+	queryResponse, queryError := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": 0 } )
+	if ( queryError != nil ) {
+		return queryError
+	}
+
+	// Fail if there is an error set
+	if ( queryResponse.System.LEDOff.ErrorCode != 0 ) {
+		return fmt.Errorf( "%d", queryResponse.System.LEDOff.ErrorCode )
+	}
+
+	// Return no error
+	return nil
+
+}
+
+// Switch off the power indicator light
+func ( smartPlug *KasaSmartPlug ) LightOff() ( error ) {
+
+	// Update data
+	updateError := smartPlug.UpdateProperties()
+	if ( updateError != nil ) {
+		return updateError
+	}
+
+	// Fail if the light is already off
+	if ( !smartPlug.LightState ) {
+		return errors.New( "smart plug light is already off" )
+	}
+
+	// Send the light off command
+	queryResponse, queryError := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": 1 } )
+	if ( queryError != nil ) {
+		return queryError
+	}
+
+	// Fail if there is an error set
+	if ( queryResponse.System.LEDOff.ErrorCode != 0 ) {
+		return fmt.Errorf( "%d", queryResponse.System.LEDOff.ErrorCode )
+	}
+
+	// Return no error
+	return nil
+
+}
+
+// Toggle the power indicator light
+func ( smartPlug KasaSmartPlug ) LightToggle() ( error ) {
+
+	// Update data
+	updateError := smartPlug.UpdateProperties()
+	if ( updateError != nil ) {
+		return updateError
+	}
+
+	// Get the current light state
 	lightState := 0
-
-	if smartPlug.LightState {
+	if ( smartPlug.LightState ) {
 		lightState = 1
-	} else if !smartPlug.LightState {
+	} else if ( !smartPlug.LightState ) {
 		lightState = 0
 	}
 
-	response := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": lightState } )
-	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
-
-	return ( smartPlug.ErrorCode == 0 )
-}
-
-func ( smartPlug KasaSmartPlug ) GetTime() time.Time {
-	smartPlug.updateTime()
-
-	return smartPlug.Time
-}
-
-func ( smartPlug KasaSmartPlug ) GetPowerTime() time.Time {
-	smartPlug.UpdateProperties()
-
-	if !smartPlug.PowerState {
-		return time.Unix( 0, 0 )
+	// Send the light command
+	queryResponse, queryError := smartPlug.SendQuery( "system", "set_led_off", map[string]int { "off": lightState } )
+	if ( queryError != nil ) {
+		return queryError
 	}
 
-	return smartPlug.Time.Add( time.Duration( -smartPlug.Uptime ) * time.Second )
-}
-
-func ( smartPlug KasaSmartPlug ) Reboot( delay int ) bool {
-	response := smartPlug.SendQuery( "system", "reboot", map[string]int { "delay": int( math.Max( 1.0, float64( delay ) ) ) } )
-	smartPlug.ErrorCode = response.System.RelayState.ErrorCode
-
-	return ( smartPlug.ErrorCode == 0 )
-}
-
-func ( smartPlug *KasaSmartPlug ) GetEnergyUsage() int {
-	response := smartPlug.SendQuery( "emeter", "get_realtime", map[string]int {} )
-	smartPlug.ErrorCode = response.System.LEDOff.ErrorCode
-
-	smartPlug.Energy.Amperage = float64( response.EnergyMeter.Now.Amperage ) / 1000.0
-	smartPlug.Energy.Voltage = float64( response.EnergyMeter.Now.Voltage ) / 1000.0
-	smartPlug.Energy.Wattage = float64( response.EnergyMeter.Now.Wattage ) / 1000.0
-	smartPlug.Energy.Total = response.EnergyMeter.Now.Total
-
-	return smartPlug.Energy.Total
-}
-
-/*func main() {
-	argumentCount := len( os.Args[ 1: ] )
-
-	if ( argumentCount < 1 ) {
-		fmt.Printf( "Usage: %s <ip address> [port number]\n", os.Args[ 0 ] )
-		os.Exit( 1 )
+	// Fail if there is an error set
+	if ( queryResponse.System.LEDOff.ErrorCode != 0 ) {
+		return fmt.Errorf( "%d", queryResponse.System.LEDOff.ErrorCode )
 	}
 
-	portNumber := 9999
-	if ( argumentCount >= 2 ) {
-		customPortNumber, _ := strconv.ParseInt( os.Args[ 2 ], 10, 64 )
-		portNumber = int( customPortNumber )
+	// Return no error
+	return nil
+
+}
+
+// Get the current time
+func ( smartPlug *KasaSmartPlug ) GetTime() ( time.Time, error ) {
+
+	// Update time-related data
+	updateError := smartPlug.UpdateTimeProperties()
+	if ( updateError != nil ) {
+		return time.Unix( 0, 0 ), updateError
 	}
 
-	smartPlug := Connect( os.Args[ 1 ], portNumber )
-	defer smartPlug.Disconnect()
+	// Return the time
+	return smartPlug.Time, nil
 
-	fmt.Printf( "%s %s '%s' power state is: %t\n", smartPlug.DeviceName, smartPlug.DeviceModel, smartPlug.Alias, smartPlug.PowerState )
-	fmt.Printf( "%.2fkWh of energy has been used, and %.2fw of energy is currently being used.\n", float64( smartPlug.GetEnergyUsage() ) / 10000.0, smartPlug.Energy.Wattage )
+}
 
-	//smartPlug.PowerOff()
-}*/
+// Get the power-on time
+func ( smartPlug *KasaSmartPlug ) GetPowerTime() ( time.Time, error ) {
+	
+	// Update data
+	updateError := smartPlug.UpdateProperties()
+	if ( updateError != nil ) {
+		return time.Unix( 0, 0 ), updateError
+	}
+
+	// Return zero if the plug is not powered on
+	if ( !smartPlug.PowerState ) {
+		return time.Unix( 0, 0 ), errors.New( "smart plug is not powered on" )
+	}
+
+	// Return the power-on time
+	return smartPlug.Time.Add( time.Duration( -smartPlug.Uptime ) * time.Second ), nil
+
+}
+
+// Restart
+func ( smartPlug *KasaSmartPlug ) Reboot( delay int ) ( error ) {
+
+	// Send the restart command
+	_, queryError := smartPlug.SendQuery( "system", "reboot", map[string]int { "delay": int( math.Max( 1.0, float64( delay ) ) ) } )
+	if ( queryError != nil ) {
+		return queryError
+	}
+
+	// Return no error
+	return nil
+
+}

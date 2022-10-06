@@ -1,6 +1,8 @@
 # Kasa Smart Plug
 
-This is a command-line utility for controlling and monitoring [TP-Link's Kasa Smart Plugs](https://tp-link.com/uk/smarthome).
+This is a command-line utility for controlling, and [Prometheus exporter](https://prometheus.io/docs/instrumenting/exporters/) for monitoring, [TP-Link's Kasa Smart Plugs](https://tp-link.com/uk/smarthome).
+
+I test this against my [Kasa KP115](https://www.tp-link.com/uk/home-networking/smart-plug/kp115/).
 
 ## Background
 

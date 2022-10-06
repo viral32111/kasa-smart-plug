@@ -49,7 +49,7 @@ func main() {
 	flag.IntVar( &flagPort, "port", flagPort, "The port number for the smart plug API." )
 	flag.IntVar( &flagInitialKey, "initial-key", flagInitialKey, "The initial value for the XOR encryption." )
 	flag.StringVar( &flagFormat, "format", flagFormat, "The output format, either human-readable (human) or JSON (json)." )
-	flag.StringVar( &flagMetricsAddress, "metrics-address", flagMetricsAddress, "The IP address to listen on for the HTTP metrics server." )
+	flag.StringVar( &flagMetricsAddress, "metrics-address", flagMetricsAddress, "The IPv4 address to listen on for the HTTP metrics server." )
 	flag.IntVar( &flagMetricsPort, "metrics-port", flagMetricsPort, "The port number to listen on for the HTTP metrics server." )
 	flag.StringVar( &flagMetricsPath, "metrics-path", flagMetricsPath, "The path to the metrics page." )
 	flag.IntVar( &flagMetricsInterval, "metrics-interval", flagMetricsInterval, "The time in seconds to wait between collecting metrics." )
@@ -58,7 +58,7 @@ func main() {
 	flag.Usage = func() {
 		fmt.Printf( "%s, v%s, by %s (%s).\n", PROJECT_NAME, PROJECT_VERSION, AUTHOR_NAME, AUTHOR_WEBSITE )
 
-		fmt.Printf( "\nUsage: kasa [-h/-help] [-address <IPv4 address>] [-port <number>] [-initial-key <number>] [-format <string>] [-metrics-address <IPv4 address>] [-metrics-port <number>] [-metrics-path <string>] [-metrics-interval <seconds>] [command] [argument, ...]\n" )
+		fmt.Printf( "\nUsage: %s [-h/-help] [-address <IPv4 address>] [-port <number>] [-initial-key <number>] [-format <string>] [-metrics-address <IPv4 address>] [-metrics-port <number>] [-metrics-path <string>] [-metrics-interval <seconds>] [command] [argument, ...]\n", os.Args[ 0 ] )
 		flag.PrintDefaults()
 
 		fmt.Printf( "\nCommands: info, usage [now|total|average] [7d|30d], power [on|off], light [on|off], metrics\n" )
@@ -87,13 +87,13 @@ func main() {
 		exitWithErrorMessage( "The IPv4 address of the smart plug must be set using the -address flag, use -help for more information." )
 	}
 
-	// Require a valid IP address for the smart plug
+	// Require a valid IPv4 address for the smart plug
 	plugAddress := net.ParseIP( flagAddress )
 	if ( plugAddress == nil || plugAddress.To4() == nil ) {
 		exitWithErrorMessage( "Invalid IPv4 address for smart plug." )
 	}
 
-	// Require a valid IP address for the smart plug API
+	// Require a valid port number for the smart plug API
 	if ( flagPort <= 0 || flagPort >= 65536 ) {
 		exitWithErrorMessage( "Invalid port number for smart plug API, must be between 1 and 65535." )
 	}
@@ -105,13 +105,13 @@ func main() {
 		exitWithErrorMessage( "Invalid output format, must be either 'human' or 'json'." )
 	}
 
-	// Require a valid IP address for the metrics server
+	// Require a valid IPv4 address for the metrics server
 	metricsAddress := net.ParseIP( flagMetricsAddress )
 	if ( flagMetricsAddress == "" || metricsAddress == nil || metricsAddress.To4() == nil ) {
 		exitWithErrorMessage( "Invalid listening IPv4 address for HTTP metrics server." )
 	}
 
-	// Require a valid IP address for the metrics server
+	// Require a valid port number for the metrics server
 	if ( flagMetricsPort <= 0 || flagMetricsPort >= 65536 ) {
 		exitWithErrorMessage( "Invalid listening port number for HTTP metrics server, must be between 1 and 65535." )
 	}
@@ -126,15 +126,17 @@ func main() {
 		exitWithErrorMessage( "Invalid interval to wait between collecting metrics, must be greater than 0." )
 	}
 
-	// Debugging
-	fmt.Println( commandName, commandArguments )
+	// Create the smart plug structure
+	var smartPlug KasaSmartPlug
 
 	// Connect to the smart plug
-	smartPlug, connectError := KasaConnect( plugAddress, flagPort, 5000 )
-	defer smartPlug.Disconnect()
+	connectError := smartPlug.Connect( plugAddress, flagPort, 5000 )
 	if ( connectError != nil ) {
 		exitWithErrorMessage( connectError.Error() )
 	}
+
+	// Disconnect from the smart plug once we're done
+	defer smartPlug.Disconnect()
 
 	// Set the initial encryption & decryption key
 	smartPlug.InitialKey = flagInitialKey
@@ -154,6 +156,16 @@ func main() {
 		}
 
 		// TODO: Display device information
+		fmt.Printf( "Status: '%s'.\n", smartPlug.Status )
+		fmt.Printf( "Uptime: '%d'.\n", smartPlug.Uptime )
+		fmt.Printf( "Power State: '%t'.\n", smartPlug.PowerState )
+		fmt.Printf( "Light State: '%t'.\n", smartPlug.LightState )
+		fmt.Printf( "Device Name: '%s'.\n", smartPlug.DeviceName )
+		fmt.Printf( "Device Model: '%s'.\n", smartPlug.DeviceModel )
+		fmt.Printf( "Device Identifier: '%s'.\n", smartPlug.DeviceIdentifier )
+		fmt.Printf( "Hardware Version: '%s'.\n", smartPlug.HardwareVersion )
+		fmt.Printf( "Hardware Identifier: '%s'.\n", smartPlug.HardwareIdentifier )
+		fmt.Printf( "MAC Address: '%s'.\n", smartPlug.MACAddress )
 
 	// Is this execution for energy usage?
 	} else if ( commandName == "usage" ) {
