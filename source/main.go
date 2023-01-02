@@ -156,6 +156,8 @@ func main() {
 		}
 
 		// TODO: Display device information
+		fmt.Printf( "Alias: '%s'.\n", smartPlug.Alias )
+		fmt.Printf( "Icon: '%s'.\n", smartPlug.Icon )
 		fmt.Printf( "Status: '%s'.\n", smartPlug.Status )
 		fmt.Printf( "Uptime: '%d'.\n", smartPlug.Uptime )
 		fmt.Printf( "Power State: '%t'.\n", smartPlug.PowerState )
@@ -165,7 +167,17 @@ func main() {
 		fmt.Printf( "Device Identifier: '%s'.\n", smartPlug.DeviceIdentifier )
 		fmt.Printf( "Hardware Version: '%s'.\n", smartPlug.HardwareVersion )
 		fmt.Printf( "Hardware Identifier: '%s'.\n", smartPlug.HardwareIdentifier )
+		fmt.Printf( "Firmware Version: '%s'.\n", smartPlug.FirmwareVersion )
+		fmt.Printf( "OEM Identifier: '%s'.\n", smartPlug.OEMIdentifier )
 		fmt.Printf( "MAC Address: '%s'.\n", smartPlug.MACAddress )
+		fmt.Printf( "Total Energy: '%d'.\n", smartPlug.Energy.Total )
+		fmt.Printf( "Wattage: '%f'.\n", smartPlug.Energy.Wattage )
+		fmt.Printf( "Voltage: '%f'.\n", smartPlug.Energy.Voltage )
+		fmt.Printf( "Amperage: '%f'.\n", smartPlug.Energy.Amperage )
+		fmt.Printf( "Signal Strength: '%d'.\n", smartPlug.SignalStrength )
+		fmt.Printf( "Source: '%s'.\n", smartPlug.Source )
+		fmt.Printf( "Type: '%s'.\n", smartPlug.Type )
+		fmt.Printf( "NTC State: '%d'.\n", smartPlug.NTCState )
 
 	// Is this execution for energy usage?
 	} else if ( commandName == "usage" ) {
