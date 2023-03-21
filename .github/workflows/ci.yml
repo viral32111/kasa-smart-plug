@@ -1,0 +1,99 @@
+name: Build
+
+on:
+  push:
+    paths:
+      - 'source/**.go'
+      - 'go.mod'
+      - '.github/workflows/ci.yml'
+    branches:
+      - '**'
+    tags:
+     - '*.*.*'
+  workflow_dispatch:
+
+env:
+  ARTIFACT_NAME: Kasa-Smart-Plug
+  EXECUTABLE_NAME: kasa-smart-plug
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        name: [ 'Windows', 'Linux (glibc)', 'Linux (musl)' ]
+        include:
+          - name: Windows
+            os: windows
+          - name: Linux (glibc)
+            os: linux
+            library: glibc
+          - name: Linux (musl)
+            os: linux
+            library: musl
+    permissions:
+      contents: read
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20
+
+      - name: Install build tools
+        run: sudo apt-get install --no-install-recommends --yes musl-tools
+
+      - name: Create builds directory
+        run: mkdir --verbose ./builds/
+
+      - name: Construct executable name
+        id: name
+        run: echo "name=${{ env.EXECUTABLE_NAME }}-${{ matrix.os }}-${{ matrix.arch }}$( if [ -n "${{ matrix.library }}" ]; then echo "-${{ matrix.library }}"; else echo ""; fi)$( if [ "${{ matrix.os }}" = "windows" ]; then echo ".exe"; else echo ""; fi)" >> "$GITHUB_OUTPUT"
+
+      - name: Build project
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: amd64
+          CC: ${{ matrix.library == 'musl' && '/usr/bin/musl-gcc' or '/usr/bin/gcc' }}
+        run: go build -v -ldflags='-s -w' -o ./builds/${{ steps.name.outputs.name }} ./source/
+
+      - name: Strip debug symbols from executable
+        run: strip ./builds/${{ steps.name.outputs.name }}
+        
+      - name: Print executable information
+        run: file ./builds/${{ steps.name.outputs.name }} && sha256sum ./builds/${{ steps.name.outputs.name }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ./builds/
+
+  release:
+    name: Release
+    runs-on: ubuntu-22.04
+    needs: build
+    if: ${{ github.event_name == 'push' && github.event.pull_request == null && !startsWith( github.ref, 'refs/heads/dependabot/' ) && github.ref_type == 'tag' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ./builds/
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: ./builds/*
+          body: ${{ github.ref_name }}
