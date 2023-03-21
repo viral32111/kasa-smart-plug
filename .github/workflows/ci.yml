@@ -70,12 +70,12 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-          CC: ${{ matrix.library == 'musl' && '/usr/bin/musl-gcc' || '/usr/bin/gcc' }}
+          CC: ${{ matrix.library == 'musl' && '/usr/bin/musl-gcc' || '' }}
         run: go build -v -ldflags='-s -w' -o ${{ steps.name.outputs.result }} ./source/
 
       - name: Strip debug symbols from executable
         run: strip ${{ steps.name.outputs.result }}
-        
+
       - name: Print executable information
         run: file ${{ steps.name.outputs.result }} && sha256sum ${{ steps.name.outputs.result }}
 
