@@ -57,7 +57,7 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: amd64
-          CC: ${{ matrix.library == 'musl' && '/usr/bin/musl-gcc' or '/usr/bin/gcc' }}
+          CC: ${{ matrix.library == 'musl' && '/usr/bin/musl-gcc' || '/usr/bin/gcc' }}
         run: go build -v -ldflags='-s -w' -o ./builds/${{ steps.name.outputs.name }} ./source/
 
       - name: Strip debug symbols from executable
