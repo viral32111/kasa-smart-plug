@@ -54,7 +54,17 @@ jobs:
 
       - name: Construct executable name
         id: name
-        run: echo "name=${{ env.ARTIFACT_NAME }}-${{ matrix.os }}-${{ matrix.arch }}$( if [ -n "${{ matrix.library }}" ]; then echo "-${{ matrix.library }}"; else echo ""; fi)$( if [ "${{ matrix.os }}" = "windows" ]; then echo ".exe"; else echo ""; fi)" >> "$GITHUB_OUTPUT"
+        env:
+          BASE_NAME: ${{ env.ARTIFACT_NAME }}
+          OPERATING_SYSTEM: ${{ matrix.os }}
+          ARCHITECTURE: ${{ matrix.arch }}
+          LIBRARY: ${{ matrix.library }}
+        uses: actions/github-script@v6
+        with:
+          result-encoding: string
+          script: |
+            const { BASE_NAME, OPERATING_SYSTEM, ARCHITECTURE, LIBRARY } = process.env;
+            return `${ BASE_NAME }-${ OPERATING_SYSTEM }-${ ARCHITECTURE }${ LIBRARY ?? "" }${ OPERATING_SYSTEM == "windows" ? ".exe" : "" }`
 
       - name: Build project
         env:
