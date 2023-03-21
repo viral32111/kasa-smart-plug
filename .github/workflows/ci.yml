@@ -54,7 +54,7 @@ jobs:
 
       - name: Construct executable name
         id: name
-        run: echo "name=${{ env.EXECUTABLE_NAME }}-${{ matrix.os }}-${{ matrix.arch }}$( if [ -n "${{ matrix.library }}" ]; then echo "-${{ matrix.library }}"; else echo ""; fi)$( if [ "${{ matrix.os }}" = "windows" ]; then echo ".exe"; else echo ""; fi)" >> "$GITHUB_OUTPUT"
+        run: echo "name=${{ env.ARTIFACT_NAME }}-${{ matrix.os }}-${{ matrix.arch }}$( if [ -n "${{ matrix.library }}" ]; then echo "-${{ matrix.library }}"; else echo ""; fi)$( if [ "${{ matrix.os }}" = "windows" ]; then echo ".exe"; else echo ""; fi)" >> "$GITHUB_OUTPUT"
 
       - name: Build project
         env:
