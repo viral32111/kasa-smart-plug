@@ -13,8 +13,7 @@ on:
   workflow_dispatch:
 
 env:
-  ARTIFACT_NAME: Kasa-Smart-Plug
-  EXECUTABLE_NAME: kasa-smart-plug
+  ARTIFACT_NAME: kasa-smart-plug
 
 jobs:
   build:
@@ -27,13 +26,16 @@ jobs:
           - name: Windows
             runner: windows-2022
             os: windows
+            arch: amd64
           - name: Linux - glibc
             runner: ubuntu-22.04
             os: linux
+            arch: amd64
             library: glibc
           - name: Linux - musl
             runner: ubuntu-22.04
             os: linux
+            arch: amd64
             library: musl
     permissions:
       contents: read
@@ -50,9 +52,6 @@ jobs:
         if: ${{ matrix.library == 'musl' }}
         run: sudo apt-get install --no-install-recommends --yes musl-tools
 
-      - name: Create builds directory
-        run: mkdir --verbose ./builds/
-
       - name: Construct executable name
         id: name
         run: echo "name=${{ env.EXECUTABLE_NAME }}-${{ matrix.os }}-${{ matrix.arch }}$( if [ -n "${{ matrix.library }}" ]; then echo "-${{ matrix.library }}"; else echo ""; fi)$( if [ "${{ matrix.os }}" = "windows" ]; then echo ".exe"; else echo ""; fi)" >> "$GITHUB_OUTPUT"
@@ -60,21 +59,21 @@ jobs:
       - name: Build project
         env:
           GOOS: ${{ matrix.os }}
-          GOARCH: amd64
+          GOARCH: ${{ matrix.arch }}
           CC: ${{ matrix.library == 'musl' && '/usr/bin/musl-gcc' || '/usr/bin/gcc' }}
-        run: go build -v -ldflags='-s -w' -o ./builds/${{ steps.name.outputs.name }} ./source/
+        run: go build -v -ldflags='-s -w' -o ${{ steps.name.outputs.name }} ./source/
 
       - name: Strip debug symbols from executable
-        run: strip ./builds/${{ steps.name.outputs.name }}
+        run: strip ${{ steps.name.outputs.name }}
         
       - name: Print executable information
-        run: file ./builds/${{ steps.name.outputs.name }} && sha256sum ./builds/${{ steps.name.outputs.name }}
+        run: file ${{ steps.name.outputs.name }} && sha256sum ${{ steps.name.outputs.name }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: ./builds/*
+          name: ${{ env.ARTIFACT_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ steps.name.outputs.name }}
 
   release:
     name: Release
