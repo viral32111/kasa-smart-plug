@@ -71,19 +71,19 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CC: ${{ matrix.library == 'musl' && '/usr/bin/musl-gcc' || '/usr/bin/gcc' }}
-        run: go build -v -ldflags='-s -w' -o ${{ steps.name.outputs.name }} ./source/
+        run: go build -v -ldflags='-s -w' -o ${{ steps.name.outputs.result }} ./source/
 
       - name: Strip debug symbols from executable
-        run: strip ${{ steps.name.outputs.name }}
+        run: strip ${{ steps.name.outputs.result }}
         
       - name: Print executable information
-        run: file ${{ steps.name.outputs.name }} && sha256sum ${{ steps.name.outputs.name }}
+        run: file ${{ steps.name.outputs.result }} && sha256sum ${{ steps.name.outputs.result }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
           name: ${{ env.ARTIFACT_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
-          path: ${{ steps.name.outputs.name }}
+          path: ${{ steps.name.outputs.result }}
 
   release:
     name: Release
