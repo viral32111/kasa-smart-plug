@@ -18,9 +18,120 @@ const (
 )
 
 /*
-kasa [-h/--help] [-a/--address <IPv4 address>] [-p/--port <number (def. 9999)>] [-k/--initial-key <number (def. 171)>] [-f/--format <human|json (def. human)>] [--metrics-address <IPv4 address (def. 127.0.0.1)>] [--metrics-port <number (def. 5000)>] [--metrics-path <string (def. /metrics)>] [-i/--metrics-interval <seconds (def. 15)>] [command] [argument, ...]
+kasa-smart-plug
+	[-h/--help]
+		Show this help message and exit.
 
-commands: info, usage [now|total|average] [7d|30d], power [on|off], light [on|off], metrics
+	[-a/--plug-address <string>]
+		The IP address of the smart plug (e.g., 192.168.0.5).
+		Scans the local network for a smart plug if not given.
+	[-p/--plug-port <number (def. 9999)>]
+		The port number of smart plug's API.
+	[-k/--initial-key <number (def. 171)>]
+		The starting key for XOR encryption & decryption.
+		Only change if you know what you are doing!
+
+	[--api-address <string (def. '127.0.0.1')>]
+		The IP address to listen on for the HTTP API.
+	[--api-port <number (def. 3000)>]
+		The port number to listen on for the HTTP API.
+		Can serve on the same port as the Prometheus metrics exporter (--metrics-port).
+		Set to 0 to disable the HTTP API.
+	[--api-path <string (def. '/api')>]
+		The HTTP base path of the API routes.
+	[-t/--api-tokens <strings>]
+		A comma-separated list of API tokens to use for authentication.
+		The API is disabled if this is not given.
+		A reverse proxy with TLS should be used if this is given, as the tokens are sent in plain-text as HTTP headers and/or URL parameters.
+	[-f/--api-tokens-file <string (def. 'api-tokens.txt')>]
+		The path to a file containing a new-line separated list of API tokens to use for authentication.
+		Each API token may be prefixed with a name followed by a colon, to use in logging instead of the token. This is recommended!
+		The API is disabled if the file is empty or does not exist, and --api-tokens is not given.
+	[--disable-api-streaming]
+		Disables real-time streaming of smart plug updates over WebSocket (/stream/ws) and Server-Sent Events (/stream/sse).
+		Requires the Prometheus metrics exporter to be enabled, as it relies upon the periodic metrics collection (--metrics-interval). 
+	[--disable-api-documentation]
+		Disables the API documentation HTML page at /docs.
+		Disables the redirect from / to /docs too.
+		It is also available online at https://viral32111.github.io/kasa-smart-plug.
+	[--api-documentation-page <string>]
+		Override the built-in API documentation HTML page.
+	[--disable-api-authentication]
+		Disables the API authentication requirements, allowing unrestricted access. This is NOT recommended!
+		The --api-tokens & --api-tokens-file flags are ignored if this is given, thus enabling the API.
+	[--disable-api-logging]
+		Disables logging of API requests/responses to the console.
+	[--api-log-file <string (def. 'api.log')>]
+		The path to a file to log API requests/responses to.
+		Leave blank or set to /dev/null to disable logging to file.
+
+	[--rpc-address <string (def. '127.0.0.1'>]
+		The IP address to listen on for the gRPC API.
+	[--rpc-port <number (def. 4000)>]
+		The port number to listen on for the gRPC API.
+		Cannot serve on the same port as the HTTP JSON API (--api-port) or Prometheus metrics exporter (--metrics-port).
+		Set to 0 to disable the gRPC API.
+	[--rpc-password <string>]
+		The password for gRPC authentication.
+		The gRPC API is disabled if this is not given.
+	[--rpc-tls-certificate <string>]
+		The path to a file containing the TLS certificate for the gRPC API.
+		Only the first certificate will be used if the file is a chain of certificates.
+	[--rpc-tls-key <string>]
+		The path to a file containing the TLS private key for the gRPC API.
+	[--disable-rpc-authentication]
+		Disables the gRPC authentication requirements, allowing unrestricted access. This is NOT recommended!
+		The --rpc-password flag is ignored if this is given, thus enabling the gRPC API.
+	[--disable-rpc-logging]
+		Disables logging of gRPC requests/responses to the console.
+	[--rpc-log-file <string (def. 'rpc.log')>]
+		The path to a file to log gRPC requests/responses to.
+		Leave blank or set to /dev/null to disable logging to file.
+
+	[--metrics-address <string (def. '127.0.0.1')>]
+		The IP address to listen on for the HTTP Prometheus metrics exporter.
+	[--metrics-port <number (def. 5000)>]
+		The port number to listen on for the HTTP Prometheus metrics exporter.
+		Can serve on the same port as the JSON API (--api-port).
+		Set to 0 to disable the metrics exporter.
+	[--metrics-path <string (def. '/metrics')>]
+		The HTTP path to the metrics page.
+		If serving on the same port as the JSON API, ensure this is not the same as an API route.
+	[-u/--metrics-authentication <string>]
+		Colon separated username & password for HTTP basic authentication.
+		Authentication is disabled if this is not given, allowing unrestricted access.
+	[-i/--metrics-interval <number (def. 15)>]
+		The time in seconds to wait between collecting metrics.
+	[--disable-metrics-logging]
+		Disables logging of metrics collection and HTTP requests/responses to the console.
+	[--metrics-log-file <string (def. 'metrics.log')>]
+		The path to a file to log metrics collection and HTTP requests/responses to.
+		Leave blank or set to /dev/null to disable logging to file.
+
+	[-f/--format <human|json (def. 'human')>]
+		The output format for commands. Use JSON for machine-readable.
+
+	[command] [arguments...]
+		Do not give any commands to act as a daemon, useful for exporting metrics & serving requests from the JSON API.
+
+Commands:
+	info
+		Returns information about the smart plug.
+	usage [now|total|average] [7d|30d]
+		Returns the energy usage reported by the smart plug.
+	power [on|off]
+		Turns the smart plug on or off.
+	light [on|off]
+		Turns the smart plug's light on or off.
+
+Kasa Smart Plug v2.0.0, by viral32111 (https://viral32111.com).
+https://github.com/viral32111/kasa-smart-plug
+
+Copyright (C) 2022-2023 viral32111, under GNU AGPL v3.
+*/
+
+/*
+kasa [-h/--help] [-a/--address <IPv4 address>] [-p/--port <number (def. 9999)>] [-k/--initial-key <number (def. 171)>] [-f/--format <human|json (def. human)>] [--metrics-address <IPv4 address (def. 127.0.0.1)>] [--metrics-port <number (def. 5000)>] [--metrics-path <string (def. /metrics)>] [-i/--metrics-interval <seconds (def. 15)>] [command] [argument, ...]
 
 kasa -a 192.168.0.5
 kasa -a 192.168.0.5 info
