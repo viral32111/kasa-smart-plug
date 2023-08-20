@@ -11,7 +11,7 @@ import (
 // Metadata
 const (
 	PROJECT_NAME = "Kasa Smart Plug"
-	PROJECT_VERSION = "2.0.0"
+	PROJECT_VERSION = "2.0.1"
 
 	AUTHOR_NAME = "viral32111"
 	AUTHOR_WEBSITE = "https://viral32111.com"
@@ -168,8 +168,8 @@ func main() {
 	// Set a custom help message
 	flag.Usage = func() {
 		fmt.Printf( "%s, v%s, by %s (%s).\n", PROJECT_NAME, PROJECT_VERSION, AUTHOR_NAME, AUTHOR_WEBSITE )
-
 		fmt.Printf( "\nUsage: %s [-h/-help] [-address <IPv4 address>] [-port <number>] [-initial-key <number>] [-format <string>] [-metrics-address <IPv4 address>] [-metrics-port <number>] [-metrics-path <string>] [-metrics-interval <seconds>] [command] [argument, ...]\n", os.Args[ 0 ] )
+
 		flag.PrintDefaults()
 
 		fmt.Printf( "\nCommands: info, usage [now|total|average] [7d|30d], power [on|off], light [on|off], metrics\n" )
