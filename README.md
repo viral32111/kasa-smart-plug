@@ -11,15 +11,17 @@ This is a command-line utility for controlling and monitoring (via a [Prometheus
 
 I test this against my [Kasa KP115](https://www.tp-link.com/uk/home-networking/smart-plug/kp115/).
 
+**NOTE: This project is not yet finished! While the API client is fully implemented, only the `info` command is implemented as of yet.**
+
 ## 📜 Background
 
 I wanted to remote control and monitor the energy usage of a few devices in my house using custom software, so I bought a few of [TP-Link's Kasa Smart Plugs](https://tp-link.com/uk/smarthome) as online reviews mentioned they had an open API which exposed lots of data and did not require linking an online account, both of which turned out to be true.
 
-I originally made this in February of 2022 as my first Go project. However, it was not published here straight away, hence why my [kasa-smart-plug](https://github.com/viral32111/kasa-smart-plug) and [Healthcheck](https://github.com/viral32111/healthcheck) projects were published before this.
+I originally made this in February of 2022 as my first Go project. However, it was not published here straight away, hence why my [RCON](https://github.com/viral32111/rcon) and [Healthcheck](https://github.com/viral32111/healthcheck) projects were published before this.
 
 ## ⚖️ License
 
-Copyright (C) 2022-2023 [viral32111](https://viral32111.com).
+Copyright (C) 2022 [viral32111](https://viral32111.com).
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

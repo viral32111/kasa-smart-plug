@@ -124,10 +124,10 @@ Commands:
 	light [on|off]
 		Turns the smart plug's light on or off.
 
-Kasa Smart Plug v2.0.0, by viral32111 (https://viral32111.com).
+Kasa Smart Plug v2.0.1, by viral32111 (https://viral32111.com).
 https://github.com/viral32111/kasa-smart-plug
 
-Copyright (C) 2022-2023 viral32111, under GNU AGPL v3.
+Copyright (C) 2022 viral32111, under GNU AGPL v3.
 */
 
 /*
